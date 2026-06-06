@@ -21,14 +21,14 @@ def home():
     return render_template("index.html")
 
 
+@app.route("/test")
+def test():
+    return "Flask is working!"
+
+
 @app.route("/upload", methods=["POST"])
 def upload():
-
     try:
-
-        print("=" * 60)
-        print("UPLOAD RECEIVED")
-
         if "zipfile" not in request.files:
             return "No ZIP file uploaded"
 
@@ -37,14 +37,8 @@ def upload():
         if file.filename == "":
             return "No file selected"
 
-        zip_path = os.path.join(
-            UPLOAD_FOLDER,
-            file.filename
-        )
-
+        zip_path = os.path.join(UPLOAD_FOLDER, file.filename)
         file.save(zip_path)
-
-        print("Saved ZIP:", zip_path)
 
         rows = []
         skipped = []
@@ -56,28 +50,14 @@ def upload():
                 if f.lower().endswith(".pdf")
             ]
 
-            print("PDF Files Found:", len(pdf_files))
+            for pdf_name in pdf_files:
 
-            for i, pdf_name in enumerate(pdf_files, start=1):
+                ps_match = re.search(r"PS-(\d+)", pdf_name)
 
-                print(f"[{i}/{len(pdf_files)}] Processing:", pdf_name)
-
-                ps_match = re.search(
-                    r"PS-(\d+)",
-                    pdf_name
-                )
-
-                ps_no = (
-                    ps_match.group(1)
-                    if ps_match
-                    else ""
-                )
+                ps_no = ps_match.group(1) if ps_match else ""
 
                 try:
-
-                    pdf_bytes = io.BytesIO(
-                        z.read(pdf_name)
-                    )
+                    pdf_bytes = io.BytesIO(z.read(pdf_name))
 
                     with pdfplumber.open(pdf_bytes) as pdf:
 
@@ -88,16 +68,13 @@ def upload():
                             if not text:
                                 continue
 
-                            lines = text.split("\n")
-
-                            for line in lines:
+                            for line in text.split("\n"):
 
                                 line = line.strip()
 
                                 if not line:
                                     continue
 
-                                # Skip headers
                                 if (
                                     line.startswith("Date of Generation")
                                     or line.startswith("View Enumeration")
@@ -122,7 +99,6 @@ def upload():
                                 )
 
                                 if m:
-
                                     rows.append({
                                         "S.No": m.group(1),
                                         "Serial No": m.group(2),
@@ -133,25 +109,18 @@ def upload():
                                         "Uncollectable Reason": m.group(7).strip(),
                                         "PS No": ps_no
                                     })
-
                                 else:
                                     skipped.append(line)
 
                 except Exception as e:
-                    print("ERROR:", pdf_name)
-                    print(str(e))
-
-        print("Creating DataFrame...")
+                    print(f"Error processing {pdf_name}: {e}")
 
         df = pd.DataFrame(rows)
 
-        if len(df) == 0:
+        if df.empty:
             return "No records extracted."
 
-        df["PS No"] = pd.to_numeric(
-            df["PS No"],
-            errors="coerce"
-        )
+        df["PS No"] = pd.to_numeric(df["PS No"], errors="coerce")
 
         output_file = os.path.join(
             OUTPUT_FOLDER,
@@ -163,33 +132,19 @@ def upload():
             "skipped_records.txt"
         )
 
-        with open(
-            skipped_file,
-            "w",
-            encoding="utf-8"
-        ) as f:
-
+        with open(skipped_file, "w", encoding="utf-8") as f:
             for item in skipped:
                 f.write(item + "\n")
-
-        print("Writing Excel...")
 
         with pd.ExcelWriter(output_file) as writer:
 
             sheet1 = df[
                 (
-                    (df["PS No"] >= 1)
-                    & (df["PS No"] <= 80)
-                )
-                |
-                (
-                    (df["PS No"] >= 145)
-                    & (df["PS No"] <= 165)
-                )
-                |
-                (
-                    (df["PS No"] >= 208)
-                    & (df["PS No"] <= 240)
+                    ((df["PS No"] >= 1) & (df["PS No"] <= 80))
+                    |
+                    ((df["PS No"] >= 145) & (df["PS No"] <= 165))
+                    |
+                    ((df["PS No"] >= 208) & (df["PS No"] <= 240))
                 )
             ]
 
@@ -211,14 +166,6 @@ def upload():
                 index=False
             )
 
-        print("=" * 60)
-        print("Excel Completed")
-        print("Sheet1:", len(sheet1))
-        print("Sheet2:", len(sheet2))
-        print("Total :", len(df))
-        print("Skipped:", len(skipped))
-        print("=" * 60)
-
         return send_file(
             output_file,
             as_attachment=True,
@@ -226,20 +173,9 @@ def upload():
         )
 
     except Exception as e:
-
         print(traceback.format_exc())
-
-        return f"""
-        ERROR OCCURRED
-
-        {str(e)}
-        """
+        return f"ERROR: {str(e)}", 500
 
 
 if __name__ == "__main__":
-
-    app.run(
-        host="0.0.0.0",
-        port=5000,
-        debug=True
-    )
+    app.run(debug=True)
